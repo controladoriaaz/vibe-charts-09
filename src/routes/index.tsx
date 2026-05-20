@@ -132,6 +132,29 @@ function Dashboard() {
   const precoMedio = qtdMat ? totalMat / qtdMat : 0;
   const varTotal = series.length > 1 ? ((series.at(-1)!.valor - series[0].valor) / series[0].valor) * 100 : 0;
 
+  // Ranking: variação 04/2026 vs 03/2026; se 03/2026 estiver zerado, busca o mês anterior com valor.
+  const ranking = useMemo(() => {
+    const TARGET = "04/2026";
+    const PRIORS = ["03/2026", "02/2026", "01/2026"];
+    return MATERIALS.map((m) => {
+      const atual = m.months[TARGET]?.vlr ?? 0;
+      let base = 0;
+      let baseMes = "—";
+      for (const p of PRIORS) {
+        const v = m.months[p]?.vlr ?? 0;
+        if (v > 0) {
+          base = v;
+          baseMes = p;
+          break;
+        }
+      }
+      const variacao = base > 0 ? ((atual - base) / base) * 100 : atual > 0 ? 100 : 0;
+      return { name: m.name, atual, base, baseMes, variacao: Number(variacao.toFixed(2)) };
+    })
+      .filter((r) => r.atual > 0 || r.base > 0)
+      .sort((a, b) => b.variacao - a.variacao);
+  }, []);
+
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-5 md:flex">
