@@ -495,7 +495,7 @@ function Dashboard() {
                         const d = p.payload ?? {};
                         return [
                           `${v.toFixed(2)}% (vs ${d.baseMes ?? "-"})`,
-                          `${fmtBRL(d.base ?? 0)} → ${fmtBRL(d.atual ?? 0)}`,
+                          `R$ ${(d.base ?? 0).toFixed(4)}/kg → R$ ${(d.atual ?? 0).toFixed(4)}/kg`,
                         ];
                       }}
                       contentStyle={{
