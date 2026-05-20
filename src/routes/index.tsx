@@ -137,11 +137,11 @@ function Dashboard() {
     const TARGET = "04/2026";
     const PRIORS = ["03/2026", "02/2026", "01/2026"];
     return MATERIALS.map((m) => {
-      const atual = m.months[TARGET]?.vlr ?? 0;
+      const atual = m.months[TARGET]?.unit ?? 0;
       let base = 0;
       let baseMes = "—";
       for (const p of PRIORS) {
-        const v = m.months[p]?.vlr ?? 0;
+        const v = m.months[p]?.unit ?? 0;
         if (v > 0) {
           base = v;
           baseMes = p;
