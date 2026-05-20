@@ -281,7 +281,10 @@ function Dashboard() {
                     <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
                     <YAxis stroke="var(--color-muted-foreground)" fontSize={12} tickFormatter={(v) => `${v}%`} />
                     <Tooltip
-                      formatter={(v: number) => `${v.toFixed(2)}%`}
+                      formatter={(v: number, _n, p: { payload?: { valor?: number } }) => [
+                        `${v.toFixed(2)}% — ${fmtBRL(p.payload?.valor ?? 0)}`,
+                        "Variação Valor",
+                      ]}
                       contentStyle={{
                         background: "var(--color-popover)",
                         border: "1px solid var(--color-border)",
