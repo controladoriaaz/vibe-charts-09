@@ -204,7 +204,7 @@ function Dashboard() {
                   Compare meses, preço por kg e variação % do valor de compra por matéria-prima.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Select value={selected} onValueChange={setSelected}>
                   <SelectTrigger className="h-10 w-80 bg-background/80 backdrop-blur">
                     <SelectValue />
@@ -213,6 +213,31 @@ function Dashboard() {
                     {MATERIALS.map((m) => (
                       <SelectItem key={m.name} value={m.name}>
                         {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={mesBase} onValueChange={setMesBase}>
+                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
+                    <SelectValue placeholder="Mês base" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedMonths.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-foreground/80">vs</span>
+                <Select value={mesComp} onValueChange={setMesComp}>
+                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
+                    <SelectValue placeholder="Mês comparar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedMonths.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
                       </SelectItem>
                     ))}
                   </SelectContent>
