@@ -454,11 +454,9 @@ function Dashboard() {
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar dataKey="total" name="Valor total" fill="var(--color-primary)" radius={[6, 6, 0, 0]}>
                       <LabelList
-                        dataKey="variacao"
+                        dataKey="total"
                         position="top"
-                        formatter={(v: number) =>
-                          v === 0 ? "" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`
-                        }
+                        formatter={(v: number) => fmtBRLk(v)}
                         fontSize={11}
                         fill="var(--color-foreground)"
                       />
