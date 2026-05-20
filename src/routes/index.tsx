@@ -14,7 +14,7 @@ import {
   AreaChart,
   Area,
   LabelList,
-} from "recharts";
+  Cell,
 import heroBg from "@/assets/hero-bg.png";
 import entradas from "@/data/entradas.json";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
