@@ -130,7 +130,10 @@ function Dashboard() {
   const totalMat = series.reduce((s, x) => s + x.valor, 0);
   const qtdMat = series.reduce((s, x) => s + x.qtd, 0);
   const precoMedio = qtdMat ? totalMat / qtdMat : 0;
-  const varTotal = series.length > 1 ? ((series.at(-1)!.valor - series[0].valor) / series[0].valor) * 100 : 0;
+  const varTotal =
+    series.length > 1 && series.at(-2)!.valor
+      ? ((series.at(-1)!.valor - series.at(-2)!.valor) / series.at(-2)!.valor) * 100
+      : 0;
 
   // Ranking: variação 04/2026 vs 03/2026; se 03/2026 estiver zerado, busca o mês anterior com valor.
   const ranking = useMemo(() => {
@@ -236,7 +239,7 @@ function Dashboard() {
               {
                 label: "Variação do período",
                 value: fmtPct(varTotal),
-                delta: `${series[0]?.mes} → ${series.at(-1)?.mes}`,
+                delta: `${series.at(-2)?.mes ?? "—"} → ${series.at(-1)?.mes ?? "—"}`,
                 up: varTotal >= 0,
               },
               { label: "Quantidade total", value: qtdMat.toLocaleString("pt-BR"), delta: "kg", up: true },
