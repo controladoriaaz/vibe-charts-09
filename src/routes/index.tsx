@@ -56,7 +56,7 @@ type Material = { name: string; months: Record<string, MonthEntry> };
 
 // Filter out spurious "Total" months that came from the pivot export.
 const ALL_MONTHS = (entradas.months as string[]).filter((m) => /^\d{2}\/\d{4}$/.test(m));
-const MATERIALS = (entradas.materials as Material[])
+const MATERIALS = (entradas.materials as unknown as Material[])
   .map((m) => ({
     ...m,
     months: Object.fromEntries(
