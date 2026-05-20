@@ -465,7 +465,7 @@ function Dashboard() {
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Ranking de Variação — 04/2026 vs 03/2026 (fallback p/ último mês com valor)
+                  Ranking de Variação do Preço/kg — 04/2026 vs 03/2026 (fallback p/ último mês com preço)
                 </CardTitle>
               </CardHeader>
               <CardContent style={{ height: Math.max(360, ranking.length * 26) }}>
