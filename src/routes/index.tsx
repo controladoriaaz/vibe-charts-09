@@ -137,11 +137,11 @@ function Dashboard() {
     const TARGET = "04/2026";
     const PRIORS = ["03/2026", "02/2026", "01/2026"];
     return MATERIALS.map((m) => {
-      const atual = m.months[TARGET]?.vlr ?? 0;
+      const atual = m.months[TARGET]?.unit ?? 0;
       let base = 0;
       let baseMes = "—";
       for (const p of PRIORS) {
-        const v = m.months[p]?.vlr ?? 0;
+        const v = m.months[p]?.unit ?? 0;
         if (v > 0) {
           base = v;
           baseMes = p;
@@ -465,7 +465,7 @@ function Dashboard() {
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Ranking de Variação — 04/2026 vs 03/2026 (fallback p/ último mês com valor)
+                  Ranking de Variação do Preço/kg — 04/2026 vs 03/2026 (fallback p/ último mês com preço)
                 </CardTitle>
               </CardHeader>
               <CardContent style={{ height: Math.max(360, ranking.length * 26) }}>
@@ -495,7 +495,7 @@ function Dashboard() {
                         const d = p.payload ?? {};
                         return [
                           `${v.toFixed(2)}% (vs ${d.baseMes ?? "-"})`,
-                          `${fmtBRL(d.base ?? 0)} → ${fmtBRL(d.atual ?? 0)}`,
+                          `R$ ${(d.base ?? 0).toFixed(4)}/kg → R$ ${(d.atual ?? 0).toFixed(4)}/kg`,
                         ];
                       }}
                       contentStyle={{
