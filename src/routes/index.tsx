@@ -239,7 +239,7 @@ function Dashboard() {
               {
                 label: "Variação do período",
                 value: fmtPct(varTotal),
-                delta: `${series[0]?.mes} → ${series.at(-1)?.mes}`,
+                delta: `${series.at(-2)?.mes ?? "—"} → ${series.at(-1)?.mes ?? "—"}`,
                 up: varTotal >= 0,
               },
               { label: "Quantidade total", value: qtdMat.toLocaleString("pt-BR"), delta: "kg", up: true },
