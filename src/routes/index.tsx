@@ -65,11 +65,7 @@ const MATERIALS = (entradas.materials as unknown as Material[])
     ) as Record<string, MonthEntry>,
   }))
   .filter((m) => Object.keys(m.months).length >= 2)
-  .sort(
-    (a, b) =>
-      Object.values(b.months).reduce((s, v) => s + (v.vlr || 0), 0) -
-      Object.values(a.months).reduce((s, v) => s + (v.vlr || 0), 0),
-  );
+  .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
 const navItems = [
   { icon: LayoutDashboard, label: "Visão Geral", active: true },
