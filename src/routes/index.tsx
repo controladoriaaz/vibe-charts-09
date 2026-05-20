@@ -89,14 +89,22 @@ const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 function Dashboard() {
   const [selected, setSelected] = useState<string>(MATERIALS[0]?.name ?? "");
 
+  const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(), []);
+  const [mesBase, setMesBase] = useState<string>(
+    sortedMonths[sortedMonths.length - 2] ?? sortedMonths[0] ?? "",
+  );
+  const [mesComp, setMesComp] = useState<string>(
+    sortedMonths[sortedMonths.length - 1] ?? sortedMonths[0] ?? "",
+  );
+
   const material = useMemo(
     () => MATERIALS.find((m) => m.name === selected) ?? MATERIALS[0],
     [selected],
   );
 
-  // Series for selected material (sorted by month)
+  // Series for selected material restricted to the two comparison months (in order).
   const series = useMemo(() => {
-    const keys = Object.keys(material.months).sort();
+    const keys = [mesBase, mesComp].filter((m) => !!material.months[m]);
     return keys.map((mes, i, arr) => {
       const cur = material.months[mes];
       const prev = i > 0 ? material.months[arr[i - 1]] : null;
@@ -111,17 +119,18 @@ function Dashboard() {
         varPreco: Number(varPreco.toFixed(2)),
       };
     });
-  }, [material]);
+  }, [material, mesBase, mesComp]);
 
-  // Overall by-month aggregate
+  // Overall by-month aggregate restricted to the two selected months.
   const overall = useMemo(() => {
-    return ALL_MONTHS.sort().map((mes, i, arr) => {
+    const months = [mesBase, mesComp];
+    return months.map((mes, i, arr) => {
       const total = MATERIALS.reduce((s, m) => s + (m.months[mes]?.vlr ?? 0), 0);
       const prevTotal = i > 0 ? MATERIALS.reduce((s, m) => s + (m.months[arr[i - 1]]?.vlr ?? 0), 0) : 0;
       const variacao = prevTotal ? ((total - prevTotal) / prevTotal) * 100 : 0;
       return { mes, total, variacao: Number(variacao.toFixed(2)) };
     });
-  }, []);
+  }, [mesBase, mesComp]);
 
   const totalMat = series.reduce((s, x) => s + x.valor, 0);
   const qtdMat = series.reduce((s, x) => s + x.qtd, 0);
@@ -131,28 +140,17 @@ function Dashboard() {
       ? ((series.at(-1)!.valor - series.at(-2)!.valor) / series.at(-2)!.valor) * 100
       : 0;
 
-  // Ranking: variação 04/2026 vs 03/2026; se 03/2026 estiver zerado, busca o mês anterior com valor.
+  // Ranking: variação do mês de comparação vs mês base (preço/kg).
   const ranking = useMemo(() => {
-    const TARGET = "04/2026";
-    const PRIORS = ["03/2026", "02/2026", "01/2026"];
     return MATERIALS.map((m) => {
-      const atual = m.months[TARGET]?.unit ?? 0;
-      let base = 0;
-      let baseMes = "—";
-      for (const p of PRIORS) {
-        const v = m.months[p]?.unit ?? 0;
-        if (v > 0) {
-          base = v;
-          baseMes = p;
-          break;
-        }
-      }
+      const atual = m.months[mesComp]?.unit ?? 0;
+      const base = m.months[mesBase]?.unit ?? 0;
       const variacao = base > 0 ? ((atual - base) / base) * 100 : atual > 0 ? 100 : 0;
-      return { name: m.name, atual, base, baseMes, variacao: Number(variacao.toFixed(2)) };
+      return { name: m.name, atual, base, baseMes: mesBase, variacao: Number(variacao.toFixed(2)) };
     })
       .filter((r) => r.atual > 0 || r.base > 0)
       .sort((a, b) => b.variacao - a.variacao);
-  }, []);
+  }, [mesBase, mesComp]);
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -206,7 +204,7 @@ function Dashboard() {
                   Compare meses, preço por kg e variação % do valor de compra por matéria-prima.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Select value={selected} onValueChange={setSelected}>
                   <SelectTrigger className="h-10 w-80 bg-background/80 backdrop-blur">
                     <SelectValue />
@@ -215,6 +213,31 @@ function Dashboard() {
                     {MATERIALS.map((m) => (
                       <SelectItem key={m.name} value={m.name}>
                         {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={mesBase} onValueChange={setMesBase}>
+                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
+                    <SelectValue placeholder="Mês base" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedMonths.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-foreground/80">vs</span>
+                <Select value={mesComp} onValueChange={setMesComp}>
+                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
+                    <SelectValue placeholder="Mês comparar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedMonths.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -468,7 +491,7 @@ function Dashboard() {
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Ranking de Variação do Preço/kg — 04/2026 vs 03/2026 (fallback p/ último mês com preço)
+                  Ranking de Variação do Preço/kg — {mesComp} vs {mesBase}
                 </CardTitle>
               </CardHeader>
               <CardContent style={{ height: Math.max(360, ranking.length * 26) }}>
