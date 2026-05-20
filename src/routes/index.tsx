@@ -435,6 +435,71 @@ function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Ranking de variação 04/2026 vs 03/2026 (fallback meses anteriores) */}
+          <div className="mt-6 grid grid-cols-1 gap-4">
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Ranking de Variação — 04/2026 vs 03/2026 (fallback p/ último mês com valor)
+                </CardTitle>
+              </CardHeader>
+              <CardContent style={{ height: Math.max(360, ranking.length * 26) }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={ranking}
+                    layout="vertical"
+                    margin={{ top: 8, right: 80, left: 8, bottom: 8 }}
+                  >
+                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      stroke="var(--color-muted-foreground)"
+                      fontSize={11}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={260}
+                      stroke="var(--color-muted-foreground)"
+                      fontSize={11}
+                      interval={0}
+                    />
+                    <Tooltip
+                      formatter={(v: number, _n, p: { payload?: { baseMes?: string; atual?: number; base?: number } }) => {
+                        const d = p.payload ?? {};
+                        return [
+                          `${v.toFixed(2)}% (vs ${d.baseMes ?? "-"})`,
+                          `${fmtBRL(d.base ?? 0)} → ${fmtBRL(d.atual ?? 0)}`,
+                        ];
+                      }}
+                      contentStyle={{
+                        background: "var(--color-popover)",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: 8,
+                      }}
+                    />
+                    <Bar dataKey="variacao" radius={[0, 4, 4, 0]}>
+                      <LabelList
+                        dataKey="variacao"
+                        position="right"
+                        formatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`}
+                        fontSize={11}
+                        fill="var(--color-foreground)"
+                      />
+                      {ranking.map((r, i) => (
+                        <Cell
+                          key={i}
+                          fill={r.variacao >= 0 ? "var(--color-accent)" : "var(--color-destructive)"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
         </section>
       </main>
     </div>
