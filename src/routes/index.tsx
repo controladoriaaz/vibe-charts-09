@@ -8,13 +8,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  BarChart,
-  Bar,
   Legend,
-  AreaChart,
-  Area,
-  LabelList,
-  Cell,
 } from "recharts";
 import heroBg from "@/assets/hero-bg.png";
 import entradas from "@/data/entradas.json";
@@ -46,7 +40,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Painel B.I. de variação de compras por matéria-prima e grupo de produto — preço/kg, valor e variação % mensal.",
+          "Painel B.I. de variação de compras por matéria-prima e grupo de produto — preço unitário e quantidade mensal.",
       },
     ],
   }),
@@ -56,11 +50,17 @@ type MonthEntry = { vlr: number; qtd: number; unit: number };
 type Material = { name: string; grupo: string; months: Record<string, MonthEntry> };
 
 const ALL_MONTHS = (entradas.months as string[]).filter((m) => /^\d{2}\/\d{4}$/.test(m));
+
+// Considera apenas notas/faturamentos válidos: entradas com quantidade E valor > 0
+// (desconsidera notas de remessa, devoluções e lançamentos sem preço).
+const isValidEntry = (e: MonthEntry | undefined): e is MonthEntry =>
+  !!e && e.qtd > 0 && e.vlr > 0 && e.unit > 0;
+
 const MATERIALS = (entradas.materials as unknown as Material[])
   .map((m) => ({
     ...m,
     months: Object.fromEntries(
-      Object.entries(m.months).filter(([k]) => /^\d{2}\/\d{4}$/.test(k)),
+      Object.entries(m.months).filter(([k, v]) => /^\d{2}\/\d{4}$/.test(k) && isValidEntry(v)),
     ) as Record<string, MonthEntry>,
   }))
   .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
@@ -69,10 +69,9 @@ const GRUPOS = Array.from(new Set(MATERIALS.map((m) => m.grupo))).sort((a, b) =>
   a.localeCompare(b, "pt-BR"),
 );
 
-// Distinct color per grupo (HSL palette)
 const GRUPO_COLORS: Record<string, string> = {};
 GRUPOS.forEach((g, i) => {
-  const hue = Math.round((360 / GRUPOS.length) * i);
+  const hue = Math.round((360 / Math.max(GRUPOS.length, 1)) * i);
   GRUPO_COLORS[g] = `hsl(${hue} 70% 55%)`;
 });
 
@@ -92,14 +91,21 @@ const monthKey = (m: string) => {
 const sortMonths = (a: string, b: string) => monthKey(a) - monthKey(b);
 
 const fmtBRL = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-const fmtBRLk = (v: number) =>
-  v >= 1_000_000
-    ? `R$ ${(v / 1_000_000).toFixed(2)} M`
-    : v >= 1000
-      ? `R$ ${(v / 1000).toFixed(1)} k`
-      : fmtBRL(v);
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+const fmtKg = (v: number) =>
+  v >= 1_000_000
+    ? `${(v / 1_000_000).toFixed(2)} M kg`
+    : v >= 1000
+      ? `${(v / 1000).toFixed(1)} k kg`
+      : `${v.toLocaleString("pt-BR")} kg`;
+
+// Preço unitário médio ponderado (R$/kg) de um conjunto de entradas válidas.
+const weightedUnit = (entries: MonthEntry[]) => {
+  const v = entries.reduce((s, e) => s + e.vlr, 0);
+  const q = entries.reduce((s, e) => s + e.qtd, 0);
+  return q > 0 ? v / q : 0;
+};
 
 function Dashboard() {
   const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), []);
@@ -107,7 +113,6 @@ function Dashboard() {
   const [mesBase, setMesBase] = useState<string>(sortedMonths[0] ?? "");
   const [mesComp, setMesComp] = useState<string>(sortedMonths[sortedMonths.length - 1] ?? "");
 
-  // Continuous range between mesBase and mesComp (inclusive, ordered).
   const rangeMonths = useMemo(() => {
     if (!mesBase || !mesComp) return [];
     const a = monthKey(mesBase);
@@ -124,42 +129,46 @@ function Dashboard() {
     [selected],
   );
 
-  // Series for selected material across the selected month range.
+  // Série do material: preço unitário e quantidade por mês do período.
   const series = useMemo(() => {
     return rangeMonths.map((mes, i) => {
-      const cur = material.months[mes] ?? { vlr: 0, qtd: 0, unit: 0 };
-      const prev = i > 0 ? (material.months[rangeMonths[i - 1]] ?? null) : null;
-      const varValor = prev && prev.vlr ? ((cur.vlr - prev.vlr) / prev.vlr) * 100 : 0;
-      const varPreco = prev && prev.unit ? ((cur.unit - prev.unit) / prev.unit) * 100 : 0;
+      const cur = material?.months[mes];
+      const prev = i > 0 ? material?.months[rangeMonths[i - 1]] : undefined;
+      const preco = cur?.unit ?? 0;
+      const qtd = cur?.qtd ?? 0;
+      const varPreco = prev && prev.unit ? ((preco - prev.unit) / prev.unit) * 100 : 0;
+      const varQtd = prev && prev.qtd ? ((qtd - prev.qtd) / prev.qtd) * 100 : 0;
       return {
         mes,
-        valor: cur.vlr,
-        qtd: cur.qtd,
-        preco: cur.unit,
-        varValor: Number(varValor.toFixed(2)),
+        preco: Number(preco.toFixed(4)),
+        qtd: Number(qtd.toFixed(2)),
         varPreco: Number(varPreco.toFixed(2)),
+        varQtd: Number(varQtd.toFixed(2)),
       };
     });
   }, [material, rangeMonths]);
 
-  // Overall total per month in range.
-  const overall = useMemo(() => {
-    return rangeMonths.map((mes, i, arr) => {
-      const total = MATERIALS.reduce((s, m) => s + (m.months[mes]?.vlr ?? 0), 0);
-      const prevTotal =
-        i > 0 ? MATERIALS.reduce((s, m) => s + (m.months[arr[i - 1]]?.vlr ?? 0), 0) : 0;
-      const variacao = prevTotal ? ((total - prevTotal) / prevTotal) * 100 : 0;
-      return { mes, total, variacao: Number(variacao.toFixed(2)) };
+  // Preço unitário médio ponderado por Grupo — evolução mensal.
+  const grupoPrecoSeries = useMemo(() => {
+    return rangeMonths.map((mes) => {
+      const row: Record<string, number | string> = { mes };
+      for (const g of GRUPOS) {
+        const entries = MATERIALS.filter((m) => m.grupo === g)
+          .map((m) => m.months[mes])
+          .filter(isValidEntry);
+        row[g] = Number(weightedUnit(entries).toFixed(4));
+      }
+      return row;
     });
   }, [rangeMonths]);
 
-  // Compras por grupo de produto ao longo do range (uma série por grupo).
-  const grupoSeries = useMemo(() => {
+  // Quantidade total (kg) por Grupo — evolução mensal.
+  const grupoQtdSeries = useMemo(() => {
     return rangeMonths.map((mes) => {
       const row: Record<string, number | string> = { mes };
       for (const g of GRUPOS) {
         row[g] = MATERIALS.filter((m) => m.grupo === g).reduce(
-          (s, m) => s + (m.months[mes]?.vlr ?? 0),
+          (s, m) => s + (m.months[mes]?.qtd ?? 0),
           0,
         );
       }
@@ -167,34 +176,65 @@ function Dashboard() {
     });
   }, [rangeMonths]);
 
-  // Variação total por grupo (último mês vs primeiro mês do range).
+  // Variação % do preço unitário por Grupo (último vs primeiro mês do período).
   const grupoVar = useMemo(() => {
     if (rangeMonths.length < 1) return [];
     const first = rangeMonths[0];
     const last = rangeMonths[rangeMonths.length - 1];
     return GRUPOS.map((g) => {
-      const base = MATERIALS.filter((m) => m.grupo === g).reduce(
-        (s, m) => s + (m.months[first]?.vlr ?? 0),
-        0,
-      );
-      const atual = MATERIALS.filter((m) => m.grupo === g).reduce(
-        (s, m) => s + (m.months[last]?.vlr ?? 0),
-        0,
-      );
-      const variacao = base ? ((atual - base) / base) * 100 : atual > 0 ? 100 : 0;
-      return { grupo: g, base, atual, variacao: Number(variacao.toFixed(2)) };
+      const mats = MATERIALS.filter((m) => m.grupo === g);
+      const baseEntries = mats.map((m) => m.months[first]).filter(isValidEntry);
+      const atualEntries = mats.map((m) => m.months[last]).filter(isValidEntry);
+      const base = weightedUnit(baseEntries);
+      const atual = weightedUnit(atualEntries);
+      const variacao = base > 0 ? ((atual - base) / base) * 100 : atual > 0 ? 100 : 0;
+      return {
+        grupo: g,
+        base: Number(base.toFixed(4)),
+        atual: Number(atual.toFixed(4)),
+        variacao: Number(variacao.toFixed(2)),
+      };
     }).sort((a, b) => b.variacao - a.variacao);
   }, [rangeMonths]);
 
-  const totalMat = series.reduce((s, x) => s + x.valor, 0);
+  // Totais por mês (todos os materiais): preço unitário médio ponderado + quantidade total.
+  const overall = useMemo(() => {
+    return rangeMonths.map((mes, i, arr) => {
+      const allEntries = MATERIALS.map((m) => m.months[mes]).filter(isValidEntry);
+      const preco = weightedUnit(allEntries);
+      const qtd = allEntries.reduce((s, e) => s + e.qtd, 0);
+      const prevEntries =
+        i > 0 ? MATERIALS.map((m) => m.months[arr[i - 1]]).filter(isValidEntry) : [];
+      const prevPreco = prevEntries.length ? weightedUnit(prevEntries) : 0;
+      const variacao = prevPreco ? ((preco - prevPreco) / prevPreco) * 100 : 0;
+      return {
+        mes,
+        preco: Number(preco.toFixed(4)),
+        qtd: Number(qtd.toFixed(2)),
+        variacao: Number(variacao.toFixed(2)),
+      };
+    });
+  }, [rangeMonths]);
+
+  // KPIs baseados em preço unitário ponderado do período.
+  const allValidInRange = useMemo(
+    () =>
+      rangeMonths.flatMap((mes) => MATERIALS.map((m) => m.months[mes]).filter(isValidEntry)),
+    [rangeMonths],
+  );
   const qtdMat = series.reduce((s, x) => s + x.qtd, 0);
-  const precoMedio = qtdMat ? totalMat / qtdMat : 0;
-  const varTotal =
-    series.length > 1 && series[0].valor
-      ? ((series.at(-1)!.valor - series[0].valor) / series[0].valor) * 100
+  const precoMedio = weightedUnit(
+    rangeMonths
+      .map((mes) => material?.months[mes])
+      .filter(isValidEntry),
+  );
+  const precoMedioGlobal = weightedUnit(allValidInRange);
+  const varPrecoMaterial =
+    series.length > 1 && series[0].preco
+      ? ((series.at(-1)!.preco - series[0].preco) / series[0].preco) * 100
       : 0;
 
-  // Ranking: variação do último mês vs primeiro mês do range (preço/kg).
+  // Ranking: variação % do preço unitário (último vs primeiro do período).
   const ranking = useMemo(() => {
     if (rangeMonths.length < 1) return [];
     const first = rangeMonths[0];
@@ -206,16 +246,20 @@ function Dashboard() {
       return {
         name: m.name,
         grupo: m.grupo,
-        atual,
-        base,
-        baseMes: first,
-        atualMes: last,
+        atual: Number(atual.toFixed(4)),
+        base: Number(base.toFixed(4)),
         variacao: Number(variacao.toFixed(2)),
       };
     })
-      .filter((r) => r.atual > 0 || r.base > 0)
+      .filter((r) => r.atual > 0 && r.base > 0)
       .sort((a, b) => b.variacao - a.variacao);
   }, [rangeMonths]);
+
+  const tooltipStyle = {
+    background: "var(--color-popover)",
+    border: "1px solid var(--color-border)",
+    borderRadius: 8,
+  };
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -263,11 +307,11 @@ function Dashboard() {
                   B.I. Compras
                 </Badge>
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                  Variação de Compras — Análise de Entradas
+                  Variação de Compras — Preço Unitário e Quantidade
                 </h1>
                 <p className="mt-2 text-sm text-foreground/85 md:text-base">
-                  Compare meses, preço por kg e variação % do valor de compra por matéria-prima e
-                  grupo de produto.
+                  Análise baseada exclusivamente no preço unitário (R$/kg) e quantidade comprada
+                  por matéria-prima e grupo de produto. Notas de remessa desconsideradas.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -326,24 +370,29 @@ function Dashboard() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
-                label: "Compra total (material)",
-                value: fmtBRLk(totalMat),
+                label: "Preço médio /kg (material)",
+                value: fmtBRL(precoMedio),
                 delta: `${rangeMonths.length} meses`,
                 up: true,
               },
               {
-                label: "Variação do período",
-                value: fmtPct(varTotal),
+                label: "Variação preço unitário",
+                value: fmtPct(varPrecoMaterial),
                 delta: `${rangeMonths[0] ?? "—"} → ${rangeMonths.at(-1) ?? "—"}`,
-                up: varTotal >= 0,
+                up: varPrecoMaterial >= 0,
               },
               {
-                label: "Quantidade total",
-                value: qtdMat.toLocaleString("pt-BR"),
-                delta: "kg",
+                label: "Quantidade total (material)",
+                value: fmtKg(qtdMat),
+                delta: "comprada no período",
                 up: true,
               },
-              { label: "Preço médio /kg", value: fmtBRL(precoMedio), delta: "ponderado", up: true },
+              {
+                label: "Preço médio /kg (global)",
+                value: fmtBRL(precoMedioGlobal),
+                delta: "ponderado",
+                up: true,
+              },
             ].map((k) => (
               <Card key={k.label} className="border-border bg-card">
                 <CardHeader className="pb-2">
@@ -372,17 +421,66 @@ function Dashboard() {
             ))}
           </div>
 
-          {/* Compras por Grupo de Produto */}
+          {/* Preço unitário por Grupo — evolução mensal */}
           <div className="mt-6 grid grid-cols-1 gap-4">
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Compras por Grupo de Produto — evolução mensal
+                  Preço Unitário por Grupo de Produto (R$/kg) — evolução mensal
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-96">
                 <ResponsiveContainer>
-                  <LineChart data={grupoSeries} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
+                  <LineChart
+                    data={grupoPrecoSeries}
+                    margin={{ top: 10, right: 16, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
+                    <YAxis
+                      stroke="var(--color-muted-foreground)"
+                      fontSize={12}
+                      tickFormatter={(v) => `R$ ${Number(v).toFixed(2)}`}
+                    />
+                    <Tooltip
+                      formatter={(v: number, n: string) => [
+                        v ? `R$ ${v.toFixed(4)} /kg` : "—",
+                        n,
+                      ]}
+                      contentStyle={tooltipStyle}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {GRUPOS.map((g) => (
+                      <Line
+                        key={g}
+                        type="monotone"
+                        dataKey={g}
+                        stroke={GRUPO_COLORS[g]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quantidade por Grupo — evolução mensal */}
+          <div className="mt-6 grid grid-cols-1 gap-4">
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Quantidade Comprada por Grupo (kg) — evolução mensal
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="h-96">
+                <ResponsiveContainer>
+                  <LineChart
+                    data={grupoQtdSeries}
+                    margin={{ top: 10, right: 16, left: 8, bottom: 4 }}
+                  >
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
                     <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
                     <YAxis
@@ -395,12 +493,8 @@ function Dashboard() {
                       }
                     />
                     <Tooltip
-                      formatter={(v: number, n: string) => [fmtBRL(v), n]}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
+                      formatter={(v: number, n: string) => [fmtKg(v), n]}
+                      contentStyle={tooltipStyle}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     {GRUPOS.map((g) => (
@@ -411,6 +505,7 @@ function Dashboard() {
                         stroke={GRUPO_COLORS[g]}
                         strokeWidth={2}
                         dot={{ r: 3 }}
+                        connectNulls
                       />
                     ))}
                   </LineChart>
@@ -419,18 +514,18 @@ function Dashboard() {
             </Card>
           </div>
 
-          {/* Variação total por grupo no período */}
+          {/* Variação % preço unitário por grupo no período (line sobre grupos ordenados) */}
           <div className="mt-6 grid grid-cols-1 gap-4">
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Variação por Grupo no Período — {rangeMonths[0] ?? "—"} →{" "}
+                  Variação % do Preço Unitário por Grupo — {rangeMonths[0] ?? "—"} →{" "}
                   {rangeMonths.at(-1) ?? "—"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-80">
                 <ResponsiveContainer>
-                  <BarChart data={grupoVar} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
+                  <LineChart data={grupoVar} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
                     <XAxis dataKey="grupo" stroke="var(--color-muted-foreground)" fontSize={11} />
                     <YAxis
@@ -444,156 +539,14 @@ function Dashboard() {
                         _n,
                         p: { payload?: { base?: number; atual?: number } },
                       ) => [
-                        `${v.toFixed(2)}% — ${fmtBRL(p.payload?.base ?? 0)} → ${fmtBRL(p.payload?.atual ?? 0)}`,
-                        "Variação",
+                        `${v.toFixed(2)}% — R$ ${(p.payload?.base ?? 0).toFixed(4)} → R$ ${(p.payload?.atual ?? 0).toFixed(4)} /kg`,
+                        "Variação preço",
                       ]}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
-                    />
-                    <Bar dataKey="variacao" radius={[6, 6, 0, 0]}>
-                      <LabelList
-                        dataKey="variacao"
-                        position="top"
-                        formatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`}
-                        fontSize={11}
-                        fill="var(--color-foreground)"
-                      />
-                      {grupoVar.map((r, i) => (
-                        <Cell key={i} fill={GRUPO_COLORS[r.grupo]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Variação % mês a mês — material selecionado */}
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="border-border bg-card">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Variação % — Valor de Compra (mês a mês)
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="h-80">
-                <ResponsiveContainer>
-                  <BarChart data={series} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
-                    <YAxis
-                      stroke="var(--color-muted-foreground)"
-                      fontSize={12}
-                      tickFormatter={(v) => `${v}%`}
-                    />
-                    <Tooltip
-                      formatter={(v: number, _n, p: { payload?: { valor?: number } }) => [
-                        `${v.toFixed(2)}% — ${fmtBRL(p.payload?.valor ?? 0)}`,
-                        "Variação Valor",
-                      ]}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
-                    />
-                    <Bar dataKey="varValor" name="Variação Valor" radius={[6, 6, 0, 0]}>
-                      <LabelList
-                        dataKey="varValor"
-                        position="top"
-                        formatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`}
-                        fontSize={11}
-                        fill="var(--color-foreground)"
-                      />
-                      {series.map((s, i) => (
-                        <Cell
-                          key={i}
-                          fill={
-                            s.varValor >= 0 ? "var(--color-accent)" : "var(--color-destructive)"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border bg-card">
-              <CardHeader>
-                <CardTitle className="text-base">Variação % — Preço por kg (mês a mês)</CardTitle>
-              </CardHeader>
-              <CardContent className="h-80">
-                <ResponsiveContainer>
-                  <BarChart data={series} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
-                    <YAxis
-                      stroke="var(--color-muted-foreground)"
-                      fontSize={12}
-                      tickFormatter={(v) => `${v}%`}
-                    />
-                    <Tooltip
-                      formatter={(v: number, _n, p: { payload?: { preco?: number } }) => [
-                        `${v.toFixed(2)}% — R$ ${(p.payload?.preco ?? 0).toFixed(4)}/kg`,
-                        "Variação Preço",
-                      ]}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
-                    />
-                    <Bar
-                      dataKey="varPreco"
-                      name="Variação Preço"
-                      fill="var(--color-primary)"
-                      radius={[6, 6, 0, 0]}
-                    >
-                      <LabelList
-                        dataKey="varPreco"
-                        position="top"
-                        formatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`}
-                        fontSize={11}
-                        fill="var(--color-foreground)"
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Preço por kg + Valor compra */}
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="border-border bg-card">
-              <CardHeader>
-                <CardTitle className="text-base">Preço por kg (R$/kg)</CardTitle>
-              </CardHeader>
-              <CardContent className="h-80">
-                <ResponsiveContainer>
-                  <LineChart data={series} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
-                    <YAxis
-                      stroke="var(--color-muted-foreground)"
-                      fontSize={12}
-                      tickFormatter={(v) => `R$ ${v.toFixed(2)}`}
-                    />
-                    <Tooltip
-                      formatter={(v: number) => `R$ ${v.toFixed(4)} /kg`}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
+                      contentStyle={tooltipStyle}
                     />
                     <Line
                       type="monotone"
-                      dataKey="preco"
+                      dataKey="variacao"
                       stroke="var(--color-primary)"
                       strokeWidth={2.5}
                       dot={{ r: 4, fill: "var(--color-primary)" }}
@@ -602,63 +555,139 @@ function Dashboard() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+          </div>
 
+          {/* Material selecionado: Preço unitário + Quantidade (dual axis line) */}
+          <div className="mt-6 grid grid-cols-1 gap-4">
             <Card className="border-border bg-card">
               <CardHeader>
-                <CardTitle className="text-base">Valor de Compra por Mês</CardTitle>
+                <CardTitle className="text-base">
+                  {material?.name} — Preço Unitário (R$/kg) e Quantidade (kg)
+                </CardTitle>
               </CardHeader>
-              <CardContent className="h-80">
+              <CardContent className="h-96">
                 <ResponsiveContainer>
-                  <AreaChart data={series} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
-                    <defs>
-                      <linearGradient id="gValor" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.55} />
-                        <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
+                  <LineChart data={series} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
                     <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
                     <YAxis
-                      stroke="var(--color-muted-foreground)"
+                      yAxisId="preco"
+                      orientation="left"
+                      stroke="var(--color-primary)"
                       fontSize={12}
-                      tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))}
+                      tickFormatter={(v) => `R$ ${Number(v).toFixed(2)}`}
+                    />
+                    <YAxis
+                      yAxisId="qtd"
+                      orientation="right"
+                      stroke="var(--color-accent)"
+                      fontSize={12}
+                      tickFormatter={(v) =>
+                        v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)
+                      }
                     />
                     <Tooltip
-                      formatter={(v: number) => fmtBRL(v)}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
+                      formatter={(v: number, n: string) =>
+                        n === "Preço /kg"
+                          ? [`R$ ${v.toFixed(4)} /kg`, n]
+                          : [fmtKg(v), n]
+                      }
+                      contentStyle={tooltipStyle}
                     />
-                    <Area
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line
+                      yAxisId="preco"
                       type="monotone"
-                      dataKey="valor"
+                      dataKey="preco"
+                      name="Preço /kg"
                       stroke="var(--color-primary)"
-                      strokeWidth={2}
-                      fill="url(#gValor)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: "var(--color-primary)" }}
                     />
-                  </AreaChart>
+                    <Line
+                      yAxisId="qtd"
+                      type="monotone"
+                      dataKey="qtd"
+                      name="Quantidade"
+                      stroke="var(--color-accent)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: "var(--color-accent)" }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
 
-          {/* Compras totais por mês */}
+          {/* Variação % mês a mês — preço unitário e quantidade do material */}
           <div className="mt-6 grid grid-cols-1 gap-4">
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Compras Totais por Mês (todos os materiais)
+                  Variação % mês a mês — Preço Unitário e Quantidade ({material?.name})
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-80">
                 <ResponsiveContainer>
-                  <BarChart data={overall} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
+                  <LineChart data={series} margin={{ top: 20, right: 16, left: 8, bottom: 4 }}>
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
                     <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
                     <YAxis
                       stroke="var(--color-muted-foreground)"
+                      fontSize={12}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <Tooltip
+                      formatter={(v: number, n: string) => [`${v.toFixed(2)}%`, n]}
+                      contentStyle={tooltipStyle}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line
+                      type="monotone"
+                      dataKey="varPreco"
+                      name="Var. % Preço /kg"
+                      stroke="var(--color-primary)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="varQtd"
+                      name="Var. % Quantidade"
+                      stroke="var(--color-accent)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Compras totais por mês — preço médio ponderado + quantidade total */}
+          <div className="mt-6 grid grid-cols-1 gap-4">
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Compras Totais por Mês (todos os materiais) — Preço médio /kg e Quantidade
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="h-96">
+                <ResponsiveContainer>
+                  <LineChart data={overall} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
+                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" stroke="var(--color-muted-foreground)" fontSize={12} />
+                    <YAxis
+                      yAxisId="preco"
+                      orientation="left"
+                      stroke="var(--color-primary)"
+                      fontSize={12}
+                      tickFormatter={(v) => `R$ ${Number(v).toFixed(2)}`}
+                    />
+                    <YAxis
+                      yAxisId="qtd"
+                      orientation="right"
+                      stroke="var(--color-accent)"
                       fontSize={12}
                       tickFormatter={(v) =>
                         v >= 1_000_000
@@ -667,64 +696,67 @@ function Dashboard() {
                       }
                     />
                     <Tooltip
-                      formatter={(v: number) => fmtBRL(v)}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
+                      formatter={(v: number, n: string) =>
+                        n === "Preço médio /kg"
+                          ? [`R$ ${v.toFixed(4)} /kg`, n]
+                          : [fmtKg(v), n]
+                      }
+                      contentStyle={tooltipStyle}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar
-                      dataKey="total"
-                      name="Valor total"
-                      fill="var(--color-primary)"
-                      radius={[6, 6, 0, 0]}
-                    >
-                      <LabelList
-                        dataKey="total"
-                        position="top"
-                        formatter={(v: number) => fmtBRLk(v)}
-                        fontSize={11}
-                        fill="var(--color-foreground)"
-                      />
-                    </Bar>
-                  </BarChart>
+                    <Line
+                      yAxisId="preco"
+                      type="monotone"
+                      dataKey="preco"
+                      name="Preço médio /kg"
+                      stroke="var(--color-primary)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                    />
+                    <Line
+                      yAxisId="qtd"
+                      type="monotone"
+                      dataKey="qtd"
+                      name="Quantidade total"
+                      stroke="var(--color-accent)"
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
 
-          {/* Ranking */}
+          {/* Ranking — variação % preço unitário (line sobre materiais ordenados) */}
           <div className="mt-6 grid grid-cols-1 gap-4">
             <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-base">
-                  Ranking de Variação do Preço/kg — {rangeMonths.at(-1) ?? "—"} vs{" "}
+                  Ranking de Variação do Preço Unitário — {rangeMonths.at(-1) ?? "—"} vs{" "}
                   {rangeMonths[0] ?? "—"}
                 </CardTitle>
               </CardHeader>
-              <CardContent style={{ height: Math.max(360, ranking.length * 26) }}>
+              <CardContent style={{ height: Math.max(360, ranking.length * 14) }}>
                 <ResponsiveContainer>
-                  <BarChart
+                  <LineChart
                     data={ranking}
-                    layout="vertical"
-                    margin={{ top: 8, right: 80, left: 8, bottom: 8 }}
+                    margin={{ top: 20, right: 24, left: 8, bottom: 100 }}
                   >
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
                     <XAxis
-                      type="number"
+                      dataKey="name"
                       stroke="var(--color-muted-foreground)"
-                      fontSize={11}
-                      tickFormatter={(v) => `${v}%`}
+                      fontSize={10}
+                      angle={-45}
+                      textAnchor="end"
+                      interval={0}
+                      height={100}
                     />
                     <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={260}
                       stroke="var(--color-muted-foreground)"
-                      fontSize={11}
-                      interval={0}
+                      fontSize={12}
+                      tickFormatter={(v) => `${v}%`}
                     />
                     <Tooltip
                       formatter={(
@@ -732,39 +764,28 @@ function Dashboard() {
                         _n,
                         p: {
                           payload?: {
-                            baseMes?: string;
-                            atualMes?: string;
-                            atual?: number;
                             base?: number;
+                            atual?: number;
                             grupo?: string;
                           };
                         },
                       ) => {
                         const d = p.payload ?? {};
                         return [
-                          `${v.toFixed(2)}% (${d.baseMes ?? "-"} → ${d.atualMes ?? "-"})`,
-                          `${d.grupo ?? ""} · R$ ${(d.base ?? 0).toFixed(4)}/kg → R$ ${(d.atual ?? 0).toFixed(4)}/kg`,
+                          `${v.toFixed(2)}% — R$ ${(d.base ?? 0).toFixed(4)} → R$ ${(d.atual ?? 0).toFixed(4)} /kg`,
+                          d.grupo ?? "Variação",
                         ];
                       }}
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 8,
-                      }}
+                      contentStyle={tooltipStyle}
                     />
-                    <Bar dataKey="variacao" radius={[0, 4, 4, 0]}>
-                      <LabelList
-                        dataKey="variacao"
-                        position="right"
-                        formatter={(v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`}
-                        fontSize={11}
-                        fill="var(--color-foreground)"
-                      />
-                      {ranking.map((r, i) => (
-                        <Cell key={i} fill={GRUPO_COLORS[r.grupo] ?? "var(--color-primary)"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
+                    <Line
+                      type="monotone"
+                      dataKey="variacao"
+                      stroke="var(--color-primary)"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "var(--color-primary)" }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
