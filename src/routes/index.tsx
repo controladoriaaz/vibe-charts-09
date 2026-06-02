@@ -332,77 +332,104 @@ function Dashboard() {
 
       <main className="flex-1 overflow-x-hidden">
         <header
-          className="relative overflow-hidden border-b border-border"
+          className="relative overflow-hidden border-b-4 border-accent"
           style={{
-            backgroundImage: `linear-gradient(90deg, oklch(0.22 0.04 155 / 0.6), oklch(0.22 0.04 155 / 0.25)), url(${heroBg})`,
+            backgroundImage: `linear-gradient(90deg, oklch(0.32 0.08 150 / 0.85), oklch(0.32 0.08 150 / 0.55)), url(${azeplastBg})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
         >
-          <div className="px-6 py-10 md:px-10 md:py-12">
-            <div className="flex flex-wrap items-end justify-between gap-6">
-              <div className="max-w-2xl">
-                <Badge className="mb-3 bg-accent text-accent-foreground hover:bg-accent">
-                  B.I. Compras
-                </Badge>
-                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                  Variação de Compras — Preço Unitário e Quantidade
-                </h1>
-                <p className="mt-2 text-sm text-foreground/85 md:text-base">
-                  Análise baseada exclusivamente no preço unitário (R$/kg) e quantidade comprada
-                  por matéria-prima e grupo de produto. Notas de remessa desconsideradas.
-                </p>
+          <div className="px-6 py-8 md:px-10 md:py-10">
+            <div className="flex flex-wrap items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <img
+                  src={azeplastLogo}
+                  alt="Azeplast"
+                  className="h-16 w-16 rounded-xl border-2 border-accent bg-accent object-contain shadow-lg md:h-20 md:w-20"
+                />
+                <div className="max-w-2xl">
+                  <Badge className="mb-2 bg-accent text-accent-foreground hover:bg-accent">
+                    Azeplast · B.I. Compras
+                  </Badge>
+                  <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">
+                    Variação de Compras — Preço Unitário e Quantidade
+                  </h1>
+                  <p className="mt-1 text-sm text-white/85">
+                    Análise por matéria-prima e grupo de produto (R$/kg e kg). Notas de remessa
+                    desconsideradas.
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Select value={selected} onValueChange={setSelected}>
-                  <SelectTrigger className="h-10 w-80 bg-background/80 backdrop-blur">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-96">
-                    {MATERIALS.map((m) => (
-                      <SelectItem key={m.name} value={m.name}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={mesBase} onValueChange={setMesBase}>
-                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
-                    <SelectValue placeholder="Mês inicial" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedMonths.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-foreground/80">até</span>
-                <Select value={mesComp} onValueChange={setMesComp}>
-                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
-                    <SelectValue placeholder="Mês final" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedMonths.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
-                  Exportar
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImport(f);
+                  }}
+                />
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importing}
+                  className="h-10 bg-accent text-accent-foreground hover:bg-accent/90 font-semibold shadow-md"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {importing ? "Importando..." : "Importar Planilha"}
                 </Button>
               </div>
             </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <Select value={selected} onValueChange={setSelected}>
+                <SelectTrigger className="h-10 w-80 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-96">
+                  {MATERIALS.map((m) => (
+                    <SelectItem key={m.name} value={m.name}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={mesBase} onValueChange={setMesBase}>
+                <SelectTrigger className="h-10 w-32 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue placeholder="Mês inicial" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedMonths.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-sm font-medium text-white">até</span>
+              <Select value={mesComp} onValueChange={setMesComp}>
+                <SelectTrigger className="h-10 w-32 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue placeholder="Mês final" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedMonths.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {rangeMonths.length > 0 && (
-              <div className="mt-3 text-xs text-foreground/75">
+              <div className="mt-3 text-xs text-white/85">
                 Período analisado: {rangeMonths.join(" → ")}
               </div>
             )}
           </div>
         </header>
+
 
         <section className="px-6 py-6 md:px-10">
           {/* KPIs */}
