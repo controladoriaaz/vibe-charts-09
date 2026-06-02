@@ -101,10 +101,56 @@ const normalizeDataset = (ds: Dataset): Dataset => ({
 
 
 function Dashboard() {
-  const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), []);
+  const [dataset, setDataset] = useState<Dataset>(() =>
+    normalizeDataset(entradasInicial as unknown as Dataset),
+  );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const MATERIALS = dataset.materials;
+  const ALL_MONTHS = dataset.months;
+  const GRUPOS = useMemo(
+    () =>
+      Array.from(new Set(MATERIALS.map((m) => m.grupo))).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
+    [MATERIALS],
+  );
+  const GRUPO_COLORS = useMemo(() => {
+    const map: Record<string, string> = {};
+    GRUPOS.forEach((g, i) => {
+      const hue = Math.round((360 / Math.max(GRUPOS.length, 1)) * i);
+      map[g] = `hsl(${hue} 70% 45%)`;
+    });
+    return map;
+  }, [GRUPOS]);
+
+  const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), [ALL_MONTHS]);
   const [selected, setSelected] = useState<string>(MATERIALS[0]?.name ?? "");
   const [mesBase, setMesBase] = useState<string>(sortedMonths[0] ?? "");
   const [mesComp, setMesComp] = useState<string>(sortedMonths[sortedMonths.length - 1] ?? "");
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    try {
+      const ds = await parseEntradasXlsx(file);
+      const normalized = normalizeDataset(ds);
+      if (normalized.materials.length === 0) throw new Error("Nenhum registro válido encontrado.");
+      setDataset(normalized);
+      const newMonths = [...normalized.months].sort(sortMonths);
+      setSelected(normalized.materials[0]?.name ?? "");
+      setMesBase(newMonths[0] ?? "");
+      setMesComp(newMonths[newMonths.length - 1] ?? "");
+      toast.success(
+        `Planilha importada: ${normalized.materials.length} materiais · ${normalized.months.length} meses.`,
+      );
+    } catch (err) {
+      toast.error(`Erro ao importar: ${(err as Error).message}`);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const rangeMonths = useMemo(() => {
     if (!mesBase || !mesComp) return [];
@@ -119,7 +165,7 @@ function Dashboard() {
 
   const material = useMemo(
     () => MATERIALS.find((m) => m.name === selected) ?? MATERIALS[0],
-    [selected],
+    [selected, MATERIALS],
   );
 
   // Série do material: preço unitário e quantidade por mês do período.
