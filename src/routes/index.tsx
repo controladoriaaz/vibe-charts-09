@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -10,8 +10,10 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import heroBg from "@/assets/hero-bg.png";
-import entradas from "@/data/entradas.json";
+import { toast } from "sonner";
+import azeplastBg from "@/assets/azeplast-header-bg.png";
+import azeplastLogo from "@/assets/azeplast-logo.jpg";
+import entradasInicial from "@/data/entradas.json";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,50 +32,28 @@ import {
   Truck,
   FileBarChart,
   Settings,
+  Upload,
 } from "lucide-react";
+import { parseEntradasXlsx, type Dataset, type MonthEntry, type Material } from "@/lib/xlsx-importer";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
   head: () => ({
     meta: [
-      { title: "B.I. Variação de Compras" },
+      { title: "Azeplast — B.I. Variação de Compras" },
       {
         name: "description",
         content:
-          "Painel B.I. de variação de compras por matéria-prima e grupo de produto — preço unitário e quantidade mensal.",
+          "Painel B.I. Azeplast — variação de compras por matéria-prima e grupo de produto, preço unitário e quantidade mensal.",
       },
     ],
   }),
 });
 
-type MonthEntry = { vlr: number; qtd: number; unit: number };
-type Material = { name: string; grupo: string; months: Record<string, MonthEntry> };
-
-const ALL_MONTHS = (entradas.months as string[]).filter((m) => /^\d{2}\/\d{4}$/.test(m));
-
 // Considera apenas notas/faturamentos válidos: entradas com quantidade E valor > 0
 // (desconsidera notas de remessa, devoluções e lançamentos sem preço).
 const isValidEntry = (e: MonthEntry | undefined): e is MonthEntry =>
   !!e && e.qtd > 0 && e.vlr > 0 && e.unit > 0;
-
-const MATERIALS = (entradas.materials as unknown as Material[])
-  .map((m) => ({
-    ...m,
-    months: Object.fromEntries(
-      Object.entries(m.months).filter(([k, v]) => /^\d{2}\/\d{4}$/.test(k) && isValidEntry(v)),
-    ) as Record<string, MonthEntry>,
-  }))
-  .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-
-const GRUPOS = Array.from(new Set(MATERIALS.map((m) => m.grupo))).sort((a, b) =>
-  a.localeCompare(b, "pt-BR"),
-);
-
-const GRUPO_COLORS: Record<string, string> = {};
-GRUPOS.forEach((g, i) => {
-  const hue = Math.round((360 / Math.max(GRUPOS.length, 1)) * i);
-  GRUPO_COLORS[g] = `hsl(${hue} 70% 55%)`;
-});
 
 const navItems = [
   { icon: LayoutDashboard, label: "Visão Geral", active: true },
@@ -106,6 +86,19 @@ const weightedUnit = (entries: MonthEntry[]) => {
   const q = entries.reduce((s, e) => s + e.qtd, 0);
   return q > 0 ? v / q : 0;
 };
+
+const normalizeDataset = (ds: Dataset): Dataset => ({
+  months: ds.months.filter((m) => /^\d{2}\/\d{4}$/.test(m)).sort(sortMonths),
+  materials: (ds.materials as Material[])
+    .map((m) => ({
+      ...m,
+      months: Object.fromEntries(
+        Object.entries(m.months).filter(([k, v]) => /^\d{2}\/\d{4}$/.test(k) && isValidEntry(v)),
+      ) as Record<string, MonthEntry>,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+});
+
 
 function Dashboard() {
   const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), []);
