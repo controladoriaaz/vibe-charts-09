@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -10,8 +10,10 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import heroBg from "@/assets/hero-bg.png";
-import entradas from "@/data/entradas.json";
+import { toast } from "sonner";
+import azeplastBg from "@/assets/azeplast-header-bg.png";
+import azeplastLogo from "@/assets/azeplast-logo.jpg";
+import entradasInicial from "@/data/entradas.json";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,50 +32,28 @@ import {
   Truck,
   FileBarChart,
   Settings,
+  Upload,
 } from "lucide-react";
+import { parseEntradasXlsx, type Dataset, type MonthEntry, type Material } from "@/lib/xlsx-importer";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
   head: () => ({
     meta: [
-      { title: "B.I. Variação de Compras" },
+      { title: "Azeplast — B.I. Variação de Compras" },
       {
         name: "description",
         content:
-          "Painel B.I. de variação de compras por matéria-prima e grupo de produto — preço unitário e quantidade mensal.",
+          "Painel B.I. Azeplast — variação de compras por matéria-prima e grupo de produto, preço unitário e quantidade mensal.",
       },
     ],
   }),
 });
 
-type MonthEntry = { vlr: number; qtd: number; unit: number };
-type Material = { name: string; grupo: string; months: Record<string, MonthEntry> };
-
-const ALL_MONTHS = (entradas.months as string[]).filter((m) => /^\d{2}\/\d{4}$/.test(m));
-
 // Considera apenas notas/faturamentos válidos: entradas com quantidade E valor > 0
 // (desconsidera notas de remessa, devoluções e lançamentos sem preço).
 const isValidEntry = (e: MonthEntry | undefined): e is MonthEntry =>
   !!e && e.qtd > 0 && e.vlr > 0 && e.unit > 0;
-
-const MATERIALS = (entradas.materials as unknown as Material[])
-  .map((m) => ({
-    ...m,
-    months: Object.fromEntries(
-      Object.entries(m.months).filter(([k, v]) => /^\d{2}\/\d{4}$/.test(k) && isValidEntry(v)),
-    ) as Record<string, MonthEntry>,
-  }))
-  .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-
-const GRUPOS = Array.from(new Set(MATERIALS.map((m) => m.grupo))).sort((a, b) =>
-  a.localeCompare(b, "pt-BR"),
-);
-
-const GRUPO_COLORS: Record<string, string> = {};
-GRUPOS.forEach((g, i) => {
-  const hue = Math.round((360 / Math.max(GRUPOS.length, 1)) * i);
-  GRUPO_COLORS[g] = `hsl(${hue} 70% 55%)`;
-});
 
 const navItems = [
   { icon: LayoutDashboard, label: "Visão Geral", active: true },
@@ -107,11 +87,70 @@ const weightedUnit = (entries: MonthEntry[]) => {
   return q > 0 ? v / q : 0;
 };
 
+const normalizeDataset = (ds: Dataset): Dataset => ({
+  months: ds.months.filter((m) => /^\d{2}\/\d{4}$/.test(m)).sort(sortMonths),
+  materials: (ds.materials as Material[])
+    .map((m) => ({
+      ...m,
+      months: Object.fromEntries(
+        Object.entries(m.months).filter(([k, v]) => /^\d{2}\/\d{4}$/.test(k) && isValidEntry(v)),
+      ) as Record<string, MonthEntry>,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+});
+
+
 function Dashboard() {
-  const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), []);
+  const [dataset, setDataset] = useState<Dataset>(() =>
+    normalizeDataset(entradasInicial as unknown as Dataset),
+  );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const MATERIALS = dataset.materials;
+  const ALL_MONTHS = dataset.months;
+  const GRUPOS = useMemo(
+    () =>
+      Array.from(new Set(MATERIALS.map((m) => m.grupo))).sort((a, b) =>
+        a.localeCompare(b, "pt-BR"),
+      ),
+    [MATERIALS],
+  );
+  const GRUPO_COLORS = useMemo(() => {
+    const map: Record<string, string> = {};
+    GRUPOS.forEach((g, i) => {
+      const hue = Math.round((360 / Math.max(GRUPOS.length, 1)) * i);
+      map[g] = `hsl(${hue} 70% 45%)`;
+    });
+    return map;
+  }, [GRUPOS]);
+
+  const sortedMonths = useMemo(() => [...ALL_MONTHS].sort(sortMonths), [ALL_MONTHS]);
   const [selected, setSelected] = useState<string>(MATERIALS[0]?.name ?? "");
   const [mesBase, setMesBase] = useState<string>(sortedMonths[0] ?? "");
   const [mesComp, setMesComp] = useState<string>(sortedMonths[sortedMonths.length - 1] ?? "");
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    try {
+      const ds = await parseEntradasXlsx(file);
+      const normalized = normalizeDataset(ds);
+      if (normalized.materials.length === 0) throw new Error("Nenhum registro válido encontrado.");
+      setDataset(normalized);
+      const newMonths = [...normalized.months].sort(sortMonths);
+      setSelected(normalized.materials[0]?.name ?? "");
+      setMesBase(newMonths[0] ?? "");
+      setMesComp(newMonths[newMonths.length - 1] ?? "");
+      toast.success(
+        `Planilha importada: ${normalized.materials.length} materiais · ${normalized.months.length} meses.`,
+      );
+    } catch (err) {
+      toast.error(`Erro ao importar: ${(err as Error).message}`);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const rangeMonths = useMemo(() => {
     if (!mesBase || !mesComp) return [];
@@ -126,7 +165,7 @@ function Dashboard() {
 
   const material = useMemo(
     () => MATERIALS.find((m) => m.name === selected) ?? MATERIALS[0],
-    [selected],
+    [selected, MATERIALS],
   );
 
   // Série do material: preço unitário e quantidade por mês do período.
@@ -293,77 +332,104 @@ function Dashboard() {
 
       <main className="flex-1 overflow-x-hidden">
         <header
-          className="relative overflow-hidden border-b border-border"
+          className="relative overflow-hidden border-b-4 border-accent"
           style={{
-            backgroundImage: `linear-gradient(90deg, oklch(0.22 0.04 155 / 0.6), oklch(0.22 0.04 155 / 0.25)), url(${heroBg})`,
+            backgroundImage: `linear-gradient(90deg, oklch(0.32 0.08 150 / 0.85), oklch(0.32 0.08 150 / 0.55)), url(${azeplastBg})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
         >
-          <div className="px-6 py-10 md:px-10 md:py-12">
-            <div className="flex flex-wrap items-end justify-between gap-6">
-              <div className="max-w-2xl">
-                <Badge className="mb-3 bg-accent text-accent-foreground hover:bg-accent">
-                  B.I. Compras
-                </Badge>
-                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                  Variação de Compras — Preço Unitário e Quantidade
-                </h1>
-                <p className="mt-2 text-sm text-foreground/85 md:text-base">
-                  Análise baseada exclusivamente no preço unitário (R$/kg) e quantidade comprada
-                  por matéria-prima e grupo de produto. Notas de remessa desconsideradas.
-                </p>
+          <div className="px-6 py-8 md:px-10 md:py-10">
+            <div className="flex flex-wrap items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <img
+                  src={azeplastLogo}
+                  alt="Azeplast"
+                  className="h-16 w-16 rounded-xl border-2 border-accent bg-accent object-contain shadow-lg md:h-20 md:w-20"
+                />
+                <div className="max-w-2xl">
+                  <Badge className="mb-2 bg-accent text-accent-foreground hover:bg-accent">
+                    Azeplast · B.I. Compras
+                  </Badge>
+                  <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">
+                    Variação de Compras — Preço Unitário e Quantidade
+                  </h1>
+                  <p className="mt-1 text-sm text-white/85">
+                    Análise por matéria-prima e grupo de produto (R$/kg e kg). Notas de remessa
+                    desconsideradas.
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Select value={selected} onValueChange={setSelected}>
-                  <SelectTrigger className="h-10 w-80 bg-background/80 backdrop-blur">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-96">
-                    {MATERIALS.map((m) => (
-                      <SelectItem key={m.name} value={m.name}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={mesBase} onValueChange={setMesBase}>
-                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
-                    <SelectValue placeholder="Mês inicial" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedMonths.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-foreground/80">até</span>
-                <Select value={mesComp} onValueChange={setMesComp}>
-                  <SelectTrigger className="h-10 w-32 bg-background/80 backdrop-blur">
-                    <SelectValue placeholder="Mês final" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedMonths.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
-                  Exportar
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImport(f);
+                  }}
+                />
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importing}
+                  className="h-10 bg-accent text-accent-foreground hover:bg-accent/90 font-semibold shadow-md"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {importing ? "Importando..." : "Importar Planilha"}
                 </Button>
               </div>
             </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <Select value={selected} onValueChange={setSelected}>
+                <SelectTrigger className="h-10 w-80 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-96">
+                  {MATERIALS.map((m) => (
+                    <SelectItem key={m.name} value={m.name}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={mesBase} onValueChange={setMesBase}>
+                <SelectTrigger className="h-10 w-32 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue placeholder="Mês inicial" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedMonths.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-sm font-medium text-white">até</span>
+              <Select value={mesComp} onValueChange={setMesComp}>
+                <SelectTrigger className="h-10 w-32 bg-white/95 text-foreground border-0 shadow-sm">
+                  <SelectValue placeholder="Mês final" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedMonths.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {rangeMonths.length > 0 && (
-              <div className="mt-3 text-xs text-foreground/75">
+              <div className="mt-3 text-xs text-white/85">
                 Período analisado: {rangeMonths.join(" → ")}
               </div>
             )}
           </div>
         </header>
+
 
         <section className="px-6 py-6 md:px-10">
           {/* KPIs */}
